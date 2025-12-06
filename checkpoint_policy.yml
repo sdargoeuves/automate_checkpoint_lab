@@ -1,0 +1,389 @@
+---
+###################################################
+## CheckPoint Firewall Rules Configuration via API
+## This playbook configures:
+## - Network objects
+## - Service objects
+## - Firewall rules/policies
+## - Publishes and installs policy
+###################################################
+
+- name: CheckPoint Firewall Rules Configuration via Management API
+  hosts: d4xfw01
+  gather_facts: true
+  tags: fw_rules
+  become: true
+  become_method: sudo
+
+  vars_files:
+    - vars_checkpoint.yml
+
+  vars:
+    api_base_url: "https://{{ checkpoint_mgmt_ip }}:{{ checkpoint_api_port }}/web_api"
+
+  tasks:
+    - name: Display API configuration status
+      ansible.builtin.debug:
+        msg: "Configuring CheckPoint Firewall Rules via Management API"
+
+    ###########################
+    ## API Login
+    ###########################
+
+    - name: Login to CheckPoint Management API
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/login"
+        method: POST
+        body_format: json
+        body:
+          user: "{{ checkpoint_api_user }}"
+          password: "{{ checkpoint_api_password }}"
+        validate_certs: false
+        status_code: 200
+      register: login_response
+      no_log: true
+
+    - name: Set API session ID
+      ansible.builtin.set_fact:
+        api_sid: "{{ login_response.json.sid }}"
+        api_headers:
+          Content-Type: "application/json"
+          X-chkp-sid: "{{ login_response.json.sid }}"
+      no_log: true
+
+    - name: Display login status
+      ansible.builtin.debug:
+        msg: "Successfully logged in to CheckPoint Management API"
+
+
+    ###########################
+    ## OPTIONAL: Rename gateway object
+    ###########################
+
+    - name: Rename the Gateway Object to Match Hostname
+      block:
+
+      - name: Get current gateways and servers
+        ansible.builtin.uri:
+          url: "{{ api_base_url }}/show-gateways-and-servers"
+          method: POST
+          headers: "{{ api_headers }}"
+          body_format: json
+          body:
+            details-level: "standard"
+          validate_certs: false
+          status_code: 200
+        register: gateways_response
+
+      - name: Set gateway info from first object
+        ansible.builtin.set_fact:
+          current_gateway_name: "{{ gateways_response.json.objects[0].name }}"
+          current_gateway_uid: "{{ gateways_response.json.objects[0].uid }}"
+          new_gateway_name: "{{ inventory_hostname }}"
+
+      - name: Display current gateway info
+        ansible.builtin.debug:
+          msg: |
+            Current gateway name: {{ current_gateway_name }}
+            Current gateway UID: {{ current_gateway_uid }}
+            New gateway name: {{ new_gateway_name }}
+
+      - name: Update gateway name
+        ansible.builtin.uri:
+          url: "{{ api_base_url }}/set-simple-gateway"
+          method: POST
+          headers: "{{ api_headers }}"
+          body_format: json
+          body:
+            uid: "{{ current_gateway_uid }}"
+            new-name: "{{ new_gateway_name }}"
+            ignore-warnings: true
+          validate_certs: false
+          status_code: 200
+        register: gateway_update_result
+        when: "current_gateway_name != new_gateway_name"
+
+      - name: Display gateway update result
+        ansible.builtin.debug:
+          msg: "Updated gateway from '{{ current_gateway_name }}' to '{{ new_gateway_name }}'"
+        when: "gateway_update_result.changed"
+
+      - name: Publish Check Point Management changes
+        ansible.builtin.uri:
+          url: "{{ api_base_url }}/publish"
+          method: POST
+          headers: "{{ api_headers }}"
+          body_format: json
+          body: {}
+          validate_certs: false
+          status_code: 200
+        when: "gateway_update_result.changed"
+      ignore_errors: true
+
+    ###########################
+    ## Create Network Objects
+    ###########################
+
+    - name: Create network objects (subnets)
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-network"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          subnet: "{{ item.subnet }}"
+          subnet-mask: "{{ item.mask }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]  # 400 if object already exists
+      loop: "{{ network_objects | selectattr('subnet', 'defined') | list }}"
+      register: network_create_result
+      changed_when: "network_create_result.status == 200"
+      failed_when: "network_create_result.status not in [200, 400]"
+
+    - name: Create host objects (single IPs)
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-host"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          ipv4-address: "{{ item.ipv4_address }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]
+      loop: "{{ network_objects | selectattr('ipv4_address', 'defined') | list }}"
+      register: host_create_result
+      changed_when: "host_create_result.status == 200"
+      failed_when: "host_create_result.status not in [200, 400]"
+
+    ###########################
+    ## Create Network Groups
+    ###########################
+
+    - name: Create network group objects
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-group"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          members: "{{ item.members }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]
+      loop: "{{ network_groups | default([]) }}"
+      register: group_create_result
+      when: network_groups is defined
+      changed_when: "group_create_result.status == 200"
+      failed_when: "group_create_result.status not in [200, 400]"
+
+    ###########################
+    ## Create Multicast Objects
+    ###########################
+
+    - name: Create multicast address range objects
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-multicast-address-range"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          ipv4-address-first: "{{ item.ipv4_address_first }}"
+          ipv4-address-last: "{{ item.ipv4_address_last }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]
+      loop: "{{ multicast_objects | default([]) }}"
+      register: multicast_create_result
+      when: multicast_objects is defined
+      changed_when: "multicast_create_result.status == 200"
+      failed_when: "multicast_create_result.status not in [200, 400]"
+
+    ###########################
+    ## Create Service Objects
+    ###########################
+
+    - name: Create TCP service objects
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-service-tcp"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          port: "{{ item.port }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]
+      loop: "{{ service_objects | selectattr('protocol', 'equalto', 'tcp') | list }}"
+      register: tcp_service_result
+      when: service_objects is defined
+      changed_when: "tcp_service_result.status == 200"
+      failed_when: "tcp_service_result.status not in [200, 400]"
+
+    - name: Create UDP service objects
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-service-udp"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          port: "{{ item.port }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]
+      loop: "{{ service_objects | selectattr('protocol', 'equalto', 'udp') | list }}"
+      register: udp_service_result
+      when: service_objects is defined
+      changed_when: "udp_service_result.status == 200"
+      failed_when: "udp_service_result.status not in [200, 400]"
+
+    ###########################
+    ## Publish Objects
+    ###########################
+
+    - name: Publish network/service objects before creating rules
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/publish"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body: {}
+        validate_certs: false
+        status_code: 200
+      register: objects_publish_result
+
+    - name: Display objects publish result
+      ansible.builtin.debug:
+        msg: "Objects published - Task ID: {{ objects_publish_result.json['task-id'] }}"
+
+    ###########################
+    ## Create Firewall Rules
+    ###########################
+
+    - name: Create firewall access rules (before Cleanup rule)
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/add-access-rule"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          layer: "{{ fw_policy_name }}"
+          position: "{{ item.position }}"
+          name: "{{ item.name }}"
+          source: "{{ item.source }}"
+          destination: "{{ item.destination }}"
+          service: "{{ item.service }}"
+          action: "{{ item.action }}"
+          track:
+            type: "{{ item.track | default('None') }}"
+          comments: "{{ item.comments | default('Created by Ansible') }}"
+        validate_certs: false
+        status_code: [200, 400]
+      loop: "{{ firewall_rules }}"
+      register: rule_create_result
+      changed_when: "rule_create_result.status == 200"
+      failed_when: "rule_create_result.status not in [200, 400]"
+
+    - name: Display firewall rules creation summary
+      ansible.builtin.debug:
+        msg: "Created/Updated rule: {{ item.item.name }}"
+      loop: "{{ rule_create_result.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    ###########################
+    ## Publish Changes
+    ###########################
+
+    - name: Publish changes to CheckPoint Management
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/publish"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body: {}
+        validate_certs: false
+        status_code: 200
+      register: publish_result
+
+    - name: Display publish result
+      ansible.builtin.debug:
+        msg: "Changes published successfully - Task ID: {{ publish_result.json['task-id'] }}"
+
+    ##########################
+    # Install Policy
+    ##########################
+    # COMMENTED OUT: Install manually from SmartConsole to verify rules first
+    # This prevents accidental lockout during testing
+
+    - name: Install security policy on gateway
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/install-policy"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          policy-package: "{{ fw_package_name }}"
+          targets: "{{ inventory_hostname }}"
+          access: true
+          threat-prevention: false
+        validate_certs: false
+        status_code: 200
+      register: install_result
+
+    - name: Display policy installation result
+      ansible.builtin.debug:
+        msg: "Policy installation initiated - Task ID: {{ install_result.json['task-id'] }}"
+
+    - name: Wait for policy installation to complete
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/show-task"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body:
+          task-id: "{{ install_result.json['task-id'] }}"
+        validate_certs: false
+        status_code: 200
+      register: task_status
+      until: "task_status.json.tasks[0].status in ['succeeded', 'failed']"
+      retries: 30
+      delay: 5
+
+    - name: Display final installation status
+      ansible.builtin.debug:
+        msg: "Policy installation {{ task_status.json.tasks[0].status }}"
+
+    ###########################
+    ## Logout
+    ###########################
+
+    - name: Logout from CheckPoint Management API
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/logout"
+        method: POST
+        headers: "{{ api_headers }}"
+        body_format: json
+        body: {}
+        validate_certs: false
+        status_code: 200
+      register: logout_result
+
+    - name: Configuration Summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "CheckPoint Firewall Rules Configuration Complete"
+          - "========================================="
+          - "Network Objects Created: {{ network_objects | length }}"
+          - "Firewall Rules Created: {{ firewall_rules | length }}"
+          - "Policy Published: Yes"
+          - "Policy Installed on: {{ inventory_hostname }}"
+          - "========================================="

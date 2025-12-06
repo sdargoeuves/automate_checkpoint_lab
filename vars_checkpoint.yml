@@ -1,0 +1,179 @@
+---
+#######################################
+## CheckPoint Configuration Variables
+#######################################
+
+# Management Interface/IP (for API access)
+checkpoint_mgmt_ip: "{{ ansible_host }}"
+checkpoint_api_port: 443
+
+# API Credentials - vagrant user does not have access to API
+checkpoint_api_user: "admin"
+checkpoint_api_password: "admin123"
+
+# OSPF Configuration
+ospf_config:
+  router_id: "{{ ansible_host }}"
+  instance: "default"  # OSPF instance name
+  area: "0.0.0.4"
+
+# OSPF Interfaces Configuration
+ospf_interfaces:
+  - name: "eth1"
+    area: "0.0.0.4"
+    # cost: 10
+    # priority: 1
+    # hello_interval: 10
+    # dead_interval: 40
+    # passive: false  # true = passive mode, false = active
+    point_to_point: true  # true = point-to-point, false = broadcast
+    password: "external"    # Used if authentication is simple
+
+  - name: "eth2"
+    area: "0.0.0.4"
+    # cost: 10
+    # priority: 100
+    # hello_interval: 10
+    # dead_interval: 40
+    # passive: false
+    point_to_point: true
+    password: "external"
+
+
+  - name: "eth3"
+    area: "0.0.0.4"
+    # cost: 20
+    # priority: 100
+    # hello_interval: 10
+    # dead_interval: 40
+    # passive: false
+    point_to_point: true
+    password: "internal"
+
+
+  - name: "eth4"
+    area: "0.0.0.4"
+    # cost: 20
+    # priority: 100
+    # hello_interval: 10
+    # dead_interval: 40
+    # passive: false
+    point_to_point: true
+    password: "internal"
+
+# Interface Configuration (enable/disable)
+interfaces:
+  - name: "eth0"
+    state: "on"
+    description: "Management Interface"
+  - name: "eth1"
+    state: "on"
+    description: "to d4xr01"
+    ipv4_address: "10.1.255.2"
+    mask_length: 30
+    mtu: 1500
+  - name: "eth2"
+    state: "on"
+    description: "to d4xr02"
+    ipv4_address: "10.1.255.6"
+    mask_length: 30
+    mtu: 1500
+  - name: "eth3"
+    state: "on"
+    description: "to s4xsw01"
+    ipv4_address: "10.1.255.9"
+    mask_length: 30
+    mtu: 1500
+  - name: "eth4"
+    state: "on"
+    description: "to s4xsw02"
+    ipv4_address: "10.1.255.13"
+    mask_length: 30
+    mtu: 1500
+
+# LLDP Configuration
+lldp_enabled: true
+lldp_intf_disabled: ["eth0"]  # Interfaces where LLDP should NOT be enabled
+lldp_mgmt_interface: "mgmt-interface"  # Management interface for TLV
+lldp_tlvs:
+  management_address: true
+  port_description: true
+  system_capabilities: true
+  system_description: true
+  system_name: true
+
+# Firewall Policy Configuration
+fw_policy_name: "Network"
+fw_package_name: "Standard"
+
+# Example Network Objects for Firewall Rules
+network_objects:
+  - name: "N_10.0.0.0_8"
+    subnet: "10.0.0.0"
+    mask: "255.0.0.0"
+    comments: "Network 10.0.0.0/8 - RFC1918 Private Network"
+
+  - name: "N_192.168.0.0_16"
+    subnet: "192.168.0.0" 
+    mask: "255.255.0.0"
+    comments: "Network 192.168.0.0/16 - RFC1918 Private Network"
+
+  - name: "N_172.16.0.0_12"
+    subnet: "172.16.0.0"
+    mask: "255.240.0.0"
+    comments: "Network 172.16.0.0/12 - RFC1918 Private Network"
+
+  - name: "FW_MGMT_Network"
+    subnet: "{{ ansible_host }}"
+    mask: "255.255.255.255"
+    comments: "Firewall Management Subnet"
+
+# Network Groups
+network_groups:
+  - name: "RFC1918_All_Networks"
+    members: ["N_10.0.0.0_8", "N_192.168.0.0_16", "N_172.16.0.0_12"]
+    comments: "All RFC1918 Private Networks"
+
+# Example Service Objects
+service_objects:
+  - name: "HTTP_8080"
+    port: "8080"
+    protocol: "tcp"
+    comments: "Custom HTTP Service"
+
+# Multicast Address Ranges
+multicast_objects:
+  - name: "mcast_224.0.0.5"
+    ipv4_address_first: "224.0.0.5"
+    ipv4_address_last: "224.0.0.5"
+    comments: "OSPF multicast address"
+
+# Example Firewall Rules - Simple approach without sections
+# Rules are added before the Cleanup rule (use position: "bottom")
+firewall_rules:
+  - name: "Allow OSPF Multicast"
+    position: 1
+    source: ["N_10.0.0.0_8"]
+    destination: ["mcast_224.0.0.5"]
+    service: ["ospf"]
+    action: "Accept"
+    track: "None" # "Log", "Extended Log", "Detailed Log", "None"
+    comments: "Allow OSPF routing protocol multicast traffic"
+  
+  - name: "Allow OSPF Unicast"
+    position: 2
+    source: ["N_10.0.0.0_8"]
+    destination: ["N_10.0.0.0_8"]
+    service: ["ospf"]
+    action: "Accept"
+    track: "None" # "Log", "Extended Log", "Detailed Log", "None"
+    comments: "Allow OSPF routing protocol unicast traffic"
+
+  - name: "Allow All Management Access"
+    position: 3
+    source: ["Any"]
+    destination: ["FW_MGMT_Network"]
+    service: ["ssh", "https", "http", "snmp", "icmp-proto"]
+    action: "Accept"
+    comments: "Allow management access to firewall - IMPORTANT: prevents lockout"
+

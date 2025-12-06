@@ -1,0 +1,211 @@
+---
+###################################################
+## CheckPoint Basic Configuration via CLISH
+## This playbook configures:
+## - Hostname
+## - Interface states
+## - OSPF routing
+## - LLDP protocol
+###################################################
+
+- name: CheckPoint Basic Configuration
+  hosts: d4xfw01
+  gather_facts: false
+  become: true
+  become_method: sudo
+  tags: basic_config
+
+  vars_files:
+    - vars_checkpoint.yml
+
+  tasks:
+    - name: Display current configuration status
+      ansible.builtin.debug:
+        msg: "Configuring CheckPoint {{ inventory_hostname }} via CLISH"
+
+    ###########################
+    ## Lock Database
+    ###########################
+
+    - name: Lock CheckPoint database
+      ansible.builtin.shell: |
+        clish -c "lock database override"
+      register: lock_result
+      changed_when: 
+        - lock_result.rc == 0
+        - "'Config lock is already turned on' not in lock_result.stdout"
+      failed_when: false
+
+    ###########################
+    ## Set Hostname
+    ###########################
+
+    - name: Set CheckPoint hostname
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set hostname {{ inventory_hostname }}"
+      register: hostname_result
+      changed_when: hostname_result.rc == 0
+
+    - name: Display hostname configuration result
+      ansible.builtin.debug:
+        var: hostname_result.stdout_lines
+
+    ###########################
+    ## Configure Interfaces
+    ###########################
+
+    - name: Enable/Configure interfaces
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set interface {{ item.name }} state {{ item.state }}"
+        {% if item.description is defined %}
+        clish -c "set interface {{ item.name }} comments '{{ item.description }}'"
+        {% endif %}
+        {% if item.mtu is defined %}
+        clish -c "set interface {{ item.name }} mtu {{ item.mtu }}"
+        {% endif %}
+        {% if item.ipv4_address is defined %}
+        clish -c "set interface {{ item.name }} ipv4-address {{ item.ipv4_address }} mask-length {{ item.mask_length }}"
+        {% endif %}
+
+      loop: "{{ interfaces }}"
+      register: interface_result
+      changed_when: interface_result.rc == 0
+
+    # Some interfaces ignore the clish MTU change unless we also set it at the OS level.
+    # Enforce the MTU directly on the kernel side to keep the dataplane in sync.
+    - name: Enforce interface MTU at OS level
+      ansible.builtin.shell: |
+        ip link set dev {{ item.name }} mtu {{ item.mtu }}
+      loop: "{{ interfaces | selectattr('mtu', 'defined') | list }}"
+      register: kernel_mtu_result
+      changed_when: kernel_mtu_result.rc == 0
+
+    ###########################
+    ## Configure LLDP
+    ###########################
+
+    - name: Enable LLDP globally
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set lldp state on"
+      when: lldp_enabled | default(false)
+      register: lldp_state_result
+      changed_when: lldp_state_result.rc == 0
+
+    - name: Configure LLDP TLVs
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set lldp tlv management-address on from {{ lldp_mgmt_interface }}"
+        clish -c "set lldp tlv port-description on"
+        clish -c "set lldp tlv system-capabilities on"
+        clish -c "set lldp tlv system-description on"
+        clish -c "set lldp tlv system-name on"
+      when: lldp_enabled | default(true)
+      register: lldp_tlv_result
+      changed_when: lldp_tlv_result.rc == 0
+
+    - name: Enable LLDP transmit-and-receive on interfaces
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set lldp interface {{ item.name }} transmit-and-receive {{ 'off' if item.name in (lldp_intf_disabled | default([])) else 'on' }}"
+      loop: "{{ interfaces }}"
+      when: lldp_enabled | default(true)
+      register: lldp_intf_result
+      changed_when: lldp_intf_result.rc == 0
+
+    - name: Display LLDP configuration result
+      ansible.builtin.debug:
+        msg:
+          - "LLDP globally enabled"
+          - "LLDP TLVs configured"
+          - "LLDP disabled on: {{ lldp_intf_disabled | default([]) | join(', ') }}"
+      when: lldp_enabled | default(true)
+
+    ###########################
+    ## Configure OSPF
+    ###########################
+
+    - name: Set Router ID
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set router-id {{ ospf_config.router_id }}"
+      register: ospf_rid_result
+      changed_when: ospf_rid_result.rc == 0
+      ignore_errors: true
+
+    - name: Display Router ID result
+      ansible.builtin.debug:
+        var: ospf_rid_result.stdout_lines
+
+    - name: Enable OSPF area
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set ospf instance {{ ospf_config.instance }} area {{ ospf_config.area }} on"
+      register: ospf_area_result
+      changed_when: ospf_area_result.rc == 0
+
+    - name: Configure OSPF on interfaces
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} area {{ item.area if item.area is defined else 'backbone' }} on"
+        {% if item.cost is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} cost {{ item.cost }}"
+        {% endif %}
+        {% if item.priority is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} priority {{ item.priority }}"
+        {% endif %}
+        {% if item.hello_interval is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} hello-interval {{ item.hello_interval }}"
+        {% endif %}
+        {% if item.dead_interval is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} dead-interval {{ item.dead_interval }}"
+        {% endif %}
+        {% if item.passive is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} passive {{ 'on' if item.passive | default(false) else 'off' }}"
+        {% endif %}
+        {% if item.point_to_point is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} point-to-point {{ 'on' if item.point_to_point | default(false) else 'off' }}"
+        {% endif %}
+        {% if item.password is defined %}
+        clish -c "set ospf instance {{ ospf_config.instance }} interface {{ item.name }} authtype simple {{ item.password }}"
+        {% endif %}
+      loop: "{{ ospf_interfaces }}"
+      register: ospf_intf_result
+      changed_when: ospf_intf_result.rc == 0
+      no_log: false  # Hide passwords from logs
+
+    - name: Display OSPF interface configuration summary
+      ansible.builtin.debug:
+        msg: "Configured OSPF on {{ item.item.name }} - Area {{ item.item.area }}"
+      loop: "{{ ospf_intf_result.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    ###########################
+    ## Save Configuration
+    ###########################
+
+    - name: Save CheckPoint configuration
+      ansible.builtin.shell: |
+        clish -c "lock database override" || true
+        clish -c "save config"
+      register: save_result
+      changed_when: save_result.rc == 0
+
+    - name: Display save configuration result
+      ansible.builtin.debug:
+        var: save_result.stdout_lines
+
+    - name: Configuration Summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "CheckPoint Configuration Complete"
+          - "========================================="
+          - "Hostname: {{ inventory_hostname }}"
+          - "OSPF Router ID: {{ ospf_config.router_id }}"
+          - "OSPF Interfaces: {{ ospf_interfaces | map(attribute='name') | list | join(', ') }}"
+          - "LLDP Enabled: {{ lldp_enabled }}"
+          - "========================================="

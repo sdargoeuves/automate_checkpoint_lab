@@ -4,24 +4,53 @@ This directory contains everything needed to spin up and automate a Check Point 
 
 ---
 
+## Prerequisites
+
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management, making it easy for anyone to run the Ansible playbooks without manually setting up Python environments.
+
+Install uv:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+All Ansible dependencies are managed via `pyproject.toml` and will be automatically installed when you run commands through uv. **No need to run `uv sync` or manually install dependencies** - `uv run` handles everything for you!
+
+---
+
+## Project Structure
+
+```
+├── bash/
+│   ├── checkpoint_box_builder.sh
+│   └── README_checkpoint_box_builder.md
+├── ansible/
+│   ├── checkpoint_config.yml
+│   ├── checkpoint_policy.yml
+│   ├── vars_checkpoint.yml
+│   ├── hosts.example.yml
+│   └── README_checkpoint_playbooks.md
+├── pyproject.toml
+└── README.md
+```
+
 ## Components
 
-- `checkpoint_box_builder.sh` – converts an official R81.20 qcow2 image into a reusable `vagrant-libvirt` box with:
+- `bash/checkpoint_box_builder.sh` – converts an official R81.20 qcow2 image into a reusable `vagrant-libvirt` box with:
   - Fixed management IP/hostname.
   - First Time Wizard preconfigured (standalone gateway + management).
   - Local admin + expert passwords for lab use.
   - A `vagrant` user (SSH key + sudo) for automation.
-- `checkpoint_config.yml` – base configuration playbook:
+- `ansible/checkpoint_config.yml` – base configuration playbook:
   - Locks the DB, sets hostname, configures interfaces/MTU, enables LLDP and OSPF, then saves the configuration.
-- `checkpoint_firewall_rules.yml` – policy playbook:
+- `ansible/checkpoint_policy.yml` – policy playbook:
   - Talks to the Management API, (optionally) renames the gateway object, creates network/host/group/multicast/service objects, adds rules, installs policy, and logs out.
-- `vars_checkpoint.yml` – all variables for both playbooks:
+- `ansible/vars_checkpoint.yml` – all variables for both playbooks:
   - Interfaces, LLDP/OSPF parameters, objects, firewall rules, and credentials.
 
 For detailed explanations:
 
-- Box builder: `README_checkpoint_box_builder.md`
-- Playbooks: `README_checkpoint_playbooks.md`
+- Box builder: `bash/README_checkpoint_box_builder.md`
+- Playbooks: `ansible/README_checkpoint_playbooks.md`
 
 ---
 
@@ -30,7 +59,7 @@ For detailed explanations:
 From the repo root, with an R81.20 qcow2 image available (for example `cp_r81_20_disk.qcow2`):
 
 ```bash
-.checkpoint_box_builder.sh auto --disk ../cp_r81_20_disk.qcow2
+bash/checkpoint_box_builder.sh auto --disk ../cp_r81_20_disk.qcow2
 ```
 
 This runs:
@@ -54,16 +83,17 @@ You can now reference this box in the repo `Vagrantfile` or your own Vagrant env
    - Uses the management IP you configured when building the box.
    - Is reachable over SSH.
    - Has API access enabled (auto-configured by the box builder script).
-2. Edit `vars_checkpoint.yml`, unless you are using netlab, in which case the variables are already in the `hosts.yml` file::
+2. Edit `ansible/vars_checkpoint.yml`, unless you are using netlab, in which case the variables are already in the `hosts.yml` file:
    - Set `checkpoint_mgmt_ip`, API port/user/password, interface definitions, and objects/rules as needed.
-3. From the repo root, run:
+3. From the repo root, run the playbooks using uv:
 
    ```bash
-   ansible-playbook checkpoint_config.yml
-   ansible-playbook checkpoint_firewall_rules.yml
+   uv run ansible-playbook -i hosts.example.yml ansible/checkpoint_config.yml
+   uv run ansible-playbook -i hosts.example.yml ansible/checkpoint_policy.yml
    ```
 
-4. Validate on the gateway using the commands listed in `README_checkpoint_playbooks.md` (LLDP, OSPF, and policy checks).
+   The `uv run` command automatically installs the required Ansible dependencies and runs the playbooks in an isolated environment.
+
+4. Validate on the gateway using the commands listed in `ansible/README_checkpoint_playbooks.md` (LLDP, OSPF, and policy checks).
 
 This gives you a repeatable Check Point gateway instance and automation that fits into the wider lab.
-

@@ -23,7 +23,7 @@ Playbooks in this folder automate CheckPoint R81.20 lab devices in two passes:
 
 ## Configure your lab
 
-Edit `checkpoint/vars_checkpoint.yml`:
+Edit `vars_checkpoint.yml`:
 
 - Management/API: `checkpoint_mgmt_ip`, `checkpoint_api_port`, `checkpoint_api_user/password`.
 - Interfaces: names, `state`, descriptions, optional MTU and IPv4/mask.
@@ -36,11 +36,11 @@ Edit `checkpoint/vars_checkpoint.yml`:
 Run base config first, then the policy:
 
 ```bash
-ansible-playbook -i hosts.yml checkpoint_config.yml
-ansible-playbook -i hosts.yml checkpoint_policy.yml
+uv run ansible-playbook -i hosts.example.yml ansible/checkpoint_config.yml
+uv run ansible-playbook -i hosts.example.yml ansible/checkpoint_policy.yml
 ```
 
-The inventory host files `hosts.yml` supplies the gateway name (`inventory_hostname`) and mgmt IP (`ansible_host`). If you are using netlab, it will create the file automatically for you when doing `netlab create` which is part of `netlab up`.
+The inventory host files `hosts.example.yml` supplies the necessary variables. If you are using netlab, use `hosts.yml` from the lab repository. This file is created automatically for you by `netlab create` which is part of `netlab up`.
 
 ## What the base config playbook does
 

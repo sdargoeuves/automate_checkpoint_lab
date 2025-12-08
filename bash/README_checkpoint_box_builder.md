@@ -2,10 +2,6 @@
 
 This document explains what `checkpoint_box_builder.sh` does and how to use it to build a reusable Check Point R81.20 Vagrant box for the lab.
 
-The script lives at:
-
-- `playbooks/checkpoint/checkpoint_box_builder.sh`
-
 It automates three phases:
 
 - Prepare a VM disk and cloud-init style ISO with your IP/hostname.
@@ -45,10 +41,10 @@ The script implements three subcommands:
 Usage:
 
 ```bash
-./playbooks/checkpoint/checkpoint_box_builder.sh help
-./playbooks/checkpoint/checkpoint_box_builder.sh prepare --disk ../cp_r81_20_disk.qcow2
-./playbooks/checkpoint/checkpoint_box_builder.sh build
-./playbooks/checkpoint/checkpoint_box_builder.sh auto --disk ../cp_r81_20_disk.qcow2
+./checkpoint_box_builder.sh help
+./checkpoint_box_builder.sh prepare --disk ../cp_r81_20_disk.qcow2
+./checkpoint_box_builder.sh build
+./checkpoint_box_builder.sh auto --disk ../cp_r81_20_disk.qcow2
 ```
 
 ---
@@ -58,7 +54,7 @@ Usage:
 Command:
 
 ```bash
-./playbooks/checkpoint/checkpoint_box_builder.sh prepare [--disk PATH] [--auto-build]
+.checkpoint_box_builder.sh prepare [--disk PATH] [--auto-build]
 ```
 
 What it does:
@@ -83,10 +79,6 @@ What it does:
     - Insecure Vagrant SSH public key in `~vagrant/.ssh/authorized_keys`.
     - Passwordless sudo in `/etc/sudoers`.
   - Enable DHCP client on `eth0` (in addition to the static IP) and save config.
-  - Add a “time loop”:
-    - Persist the box creation date.
-    - Force system time to that date at boot via `/etc/rc.d/rc.local`.
-    - Add a weekly cron job to reset the date, avoiding license expiry in long‑lived labs.
   - Configure the Management API via `mgmt_cli`:
     - Retry login several times.
     - Set `api-settings` to accept API calls from “All IP addresses that can be used for GUI clients”.
@@ -119,7 +111,7 @@ After the VM exits, you shut it down (or `auto` mode does this via `virsh shutdo
 Command:
 
 ```bash
-./playbooks/checkpoint/checkpoint_box_builder.sh build [--disk PATH]
+.checkpoint_box_builder.sh build [--disk PATH]
 ```
 
 What it does:
@@ -149,13 +141,13 @@ What it does:
 Example of adding the box to Vagrant using the metadata file:
 
 ```bash
-vagrant box add playbooks/checkpoint/checkpoint-r8120_10_194_58_200_metadata.json
+vagrant box add checkpoint-r8120_10_194_58_200_metadata.json
 ```
 
 Or, without metadata:
 
 ```bash
-vagrant box add checkpoint-r8120 playbooks/checkpoint/checkpoint-r8120_10_194_58_200.box
+vagrant box add checkpoint-r8120 checkpoint-r8120_10_194_58_200.box
 ```
 
 ---
@@ -165,7 +157,7 @@ vagrant box add checkpoint-r8120 playbooks/checkpoint/checkpoint-r8120_10_194_58
 Command:
 
 ```bash
-./playbooks/checkpoint/checkpoint_box_builder.sh auto [--disk PATH]
+.checkpoint_box_builder.sh auto [--disk PATH]
 ```
 
 What it does:
@@ -184,5 +176,5 @@ What it does:
   - Skips interactive confirmations.
   - Always cleans up `_tmp_cp_box/` at the end.
 
-The result is a ready-to-use Check Point R81.20 Vagrant box based on your chosen IP/hostname and a consistent first-boot configuration suitable for the Ansible playbooks in `playbooks/checkpoint/`.
+The result is a ready-to-use Check Point R81.20 Vagrant box based on your chosen IP/hostname and a consistent first-boot configuration suitable for the Ansible playbooks available in this repo.
 

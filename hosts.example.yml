@@ -1,0 +1,9 @@
+all:
+  hosts:
+    d4xfw01:
+      ansible_host: 10.194.56.99
+      ansible_connection: paramiko
+      ansible_ssh_pass: vagrant
+      ansible_user: vagrant
+      ansible_python_interpreter: /usr/bin/python3  # Add this line
+

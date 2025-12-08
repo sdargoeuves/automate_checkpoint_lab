@@ -19,6 +19,7 @@
     - vars_checkpoint.yml
 
   vars:
+    ansible_python_interpreter: /usr/bin/python3 # only available python on Check Point R81.20
     api_base_url: "https://{{ checkpoint_mgmt_ip }}:{{ checkpoint_api_port }}/web_api"
 
   tasks:

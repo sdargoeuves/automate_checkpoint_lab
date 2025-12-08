@@ -11,7 +11,7 @@ This directory contains everything needed to spin up and automate a Check Point 
   - First Time Wizard preconfigured (standalone gateway + management).
   - Local admin + expert passwords for lab use.
   - A `vagrant` user (SSH key + sudo) for automation.
-- `checkpoint_configuration.yml` – base configuration playbook:
+- `checkpoint_config.yml` – base configuration playbook:
   - Locks the DB, sets hostname, configures interfaces/MTU, enables LLDP and OSPF, then saves the configuration.
 - `checkpoint_firewall_rules.yml` – policy playbook:
   - Talks to the Management API, (optionally) renames the gateway object, creates network/host/group/multicast/service objects, adds rules, installs policy, and logs out.
@@ -20,8 +20,8 @@ This directory contains everything needed to spin up and automate a Check Point 
 
 For detailed explanations:
 
-- Box builder: `playbooks/checkpoint/checkpoint_box_builder.md`
-- Playbooks: `playbooks/checkpoint/checkpoint.md`
+- Box builder: `README_checkpoint_box_builder.md`
+- Playbooks: `README_checkpoint_playbooks.md`
 
 ---
 
@@ -30,7 +30,7 @@ For detailed explanations:
 From the repo root, with an R81.20 qcow2 image available (for example `cp_r81_20_disk.qcow2`):
 
 ```bash
-./playbooks/checkpoint/checkpoint_box_builder.sh auto --disk ../cp_r81_20_disk.qcow2
+.checkpoint_box_builder.sh auto --disk ../cp_r81_20_disk.qcow2
 ```
 
 This runs:
@@ -41,7 +41,7 @@ This runs:
 When it finishes, add the box to Vagrant (example name/IP only):
 
 ```bash
-vagrant box add playbooks/checkpoint/checkpoint-r8120_10_194_58_200_metadata.json
+vagrant box add checkpoint-r8120_10_194_58_200_metadata.json
 ```
 
 You can now reference this box in the repo `Vagrantfile` or your own Vagrant environments.
@@ -54,16 +54,16 @@ You can now reference this box in the repo `Vagrantfile` or your own Vagrant env
    - Uses the management IP you configured when building the box.
    - Is reachable over SSH.
    - Has API access enabled (auto-configured by the box builder script).
-2. Edit `playbooks/checkpoint/vars_checkpoint.yml`:
+2. Edit `vars_checkpoint.yml`, unless you are using netlab, in which case the variables are already in the `hosts.yml` file::
    - Set `checkpoint_mgmt_ip`, API port/user/password, interface definitions, and objects/rules as needed.
 3. From the repo root, run:
 
    ```bash
-   ansible-playbook playbooks/checkpoint/checkpoint_configuration.yml --tags basic_config
-   ansible-playbook playbooks/checkpoint/checkpoint_firewall_rules.yml --tags fw_rules
+   ansible-playbook checkpoint_config.yml
+   ansible-playbook checkpoint_firewall_rules.yml
    ```
 
-4. Validate on the gateway using the commands listed in `playbooks/checkpoint/checkpoint.md` (LLDP, OSPF, and policy checks).
+4. Validate on the gateway using the commands listed in `README_checkpoint_playbooks.md` (LLDP, OSPF, and policy checks).
 
-This gives you a repeatable Check Point gateway instance and automation that fits into the wider NetSim lab.
+This gives you a repeatable Check Point gateway instance and automation that fits into the wider lab.
 

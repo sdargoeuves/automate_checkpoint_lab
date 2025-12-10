@@ -27,37 +27,17 @@ ospf_interfaces:
     # dead_interval: 40
     # passive: false  # true = passive mode, false = active
     point_to_point: true  # true = point-to-point, false = broadcast
-    password: "external"    # Used if authentication is simple
-
+    password: "external"    # Used for simple authentication
   - name: "eth2"
     area: "0.0.0.4"
-    # cost: 10
-    # priority: 100
-    # hello_interval: 10
-    # dead_interval: 40
-    # passive: false
     point_to_point: true
     password: "external"
-
-
   - name: "eth3"
     area: "0.0.0.4"
-    # cost: 20
-    # priority: 100
-    # hello_interval: 10
-    # dead_interval: 40
-    # passive: false
     point_to_point: true
     password: "internal"
-
-
   - name: "eth4"
     area: "0.0.0.4"
-    # cost: 20
-    # priority: 100
-    # hello_interval: 10
-    # dead_interval: 40
-    # passive: false
     point_to_point: true
     password: "internal"
 
@@ -123,6 +103,23 @@ network_objects:
     mask: "255.240.0.0"
     comments: "Network 172.16.0.0/12 - RFC1918 Private Network"
 
+  - name: "N_172.16.41.0_24"
+    subnet: "172.16.41.0"
+    mask: "255.255.255.0"
+    comments: "Network 172.16.41.0/24 - Site 4 odd"
+  - name: "N_172.16.43.0_24"
+    subnet: "172.16.43.0"
+    mask: "255.255.255.0"
+    comments: "Network 172.16.43.0/24 - Site 4 odd"
+  - name: "N_172.16.42.0_24"
+    subnet: "172.16.42.0"
+    mask: "255.255.255.0"
+    comments: "Network 172.16.42.0/24 - Site 4 even"
+  - name: "N_172.16.44.0_24"
+    subnet: "172.16.44.0"
+    mask: "255.255.255.0"
+    comments: "Network 172.16.44.0/24 - Site 4 even"
+
   - name: "FW_MGMT_Network"
     subnet: "{{ ansible_host }}"
     mask: "255.255.255.255"
@@ -133,13 +130,19 @@ network_groups:
   - name: "RFC1918_All_Networks"
     members: ["N_10.0.0.0_8", "N_192.168.0.0_16", "N_172.16.0.0_12"]
     comments: "All RFC1918 Private Networks"
+  - name: "Site4_Odd_Networks"
+    members: ["N_172.16.41.0_24", "N_172.16.43.0_24"]
+    comments: "Site 4 Odd Networks"
+  - name: "Site4_Even_Networks"
+    members: ["N_172.16.42.0_24", "N_172.16.44.0_24"]
+    comments: "Site 4 Even Networks"
 
 # Example Service Objects
 service_objects:
-  - name: "HTTP_8080"
-    port: "8080"
+  - name: "SomeName"
+    port: "60876"
     protocol: "tcp"
-    comments: "Custom HTTP Service"
+    comments: "Random TCP Port Example"
 
 # Multicast Address Ranges
 multicast_objects:
@@ -148,11 +151,23 @@ multicast_objects:
     ipv4_address_last: "224.0.0.5"
     comments: "OSPF multicast address"
 
-# Example Firewall Rules - Simple approach without sections
-# Rules are added before the Cleanup rule (use position: "bottom")
+# Example Firewall Rules - Using relative positioning
+# "top" = at the very top
+# "bottom" = just before Cleanup rule (recommended for most rules)
+# {"above": "rule-name"} or {"below": "rule-name"} for specific placement
+
+firewall_sections:
+  - name: "Management Section"
+    position: "bottom"  # Will be created first, at bottom (before placeholder)
+  - name: "User Traffic Section"
+    position: "bottom"  # Will be created after Management, at bottom
+  - name: "Cleanup Section"
+    position: "bottom"  # Will be created last, at bottom
+
 firewall_rules:
   - name: "Allow OSPF Multicast"
-    position: 1
+    position:
+      below: "Management Section"
     source: ["N_10.0.0.0_8"]
     destination: ["mcast_224.0.0.5"]
     service: ["ospf"]
@@ -161,19 +176,47 @@ firewall_rules:
     comments: "Allow OSPF routing protocol multicast traffic"
   
   - name: "Allow OSPF Unicast"
-    position: 2
+    position:
+      below: "Management Section"
     source: ["N_10.0.0.0_8"]
     destination: ["N_10.0.0.0_8"]
     service: ["ospf"]
     action: "Accept"
-    track: "None" # "Log", "Extended Log", "Detailed Log", "None"
+    track: "None"
     comments: "Allow OSPF routing protocol unicast traffic"
 
-  - name: "Allow All Management Access"
-    position: 3
+  - name: "Allow Management Access to Firewall"
+    position:
+      below: "Management Section"
     source: ["Any"]
     destination: ["FW_MGMT_Network"]
-    service: ["ssh", "https", "http", "snmp", "icmp-proto"]
+    service: ["ssh", "https", "snmp", "icmp-proto"]
     action: "Accept"
     comments: "Allow management access to firewall - IMPORTANT: prevents lockout"
 
+  - name: "Allow HTTPS and HTTPS Proxy to Even Site4 Networks"
+    position:
+      below: "User Traffic Section"
+    source: ["Any"]
+    destination: ["Site4_Even_Networks"]
+    service: ["https", "HTTP_and_HTTPS_proxy"]
+    action: "Accept"
+    comments: "Allow HTTPS access to Site4 Even Networks"
+
+  - name: "Allow Management to Odd Site4 Networks"
+    position:
+      below: "User Traffic Section"
+    source: ["Any"]
+    destination: ["Site4_Odd_Networks"]
+    service: ["ssh", "rdp", "snmp"]
+    action: "Accept"
+    comments: "Allow management access to Site4 Odd Networks"
+
+  - name: "Cleanup Rule"
+    position:
+      below: "Cleanup Section"
+    source: ["Any"]
+    destination: ["Any"]
+    service: ["Any"]
+    action: "Drop"
+    comments: "Explicit Cleanup rule"

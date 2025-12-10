@@ -10,7 +10,7 @@ Playbooks in this folder automate CheckPoint R81.20 lab devices in two passes:
 | File | What it does | How it connects |
 |------|--------------|-----------------|
 | `checkpoint_config.yml` | Locks the DB, sets hostname, configures interfaces/MTU, enables LLDP, enables OSPF per interface, saves config | SSH → CLISH |
-| `checkpoint_policy.yml` | Logs in to the Mgmt API, optionally renames the gateway, creates network/host/group/multicast/service objects, publishes, adds access rules, installs the policy, logs out | HTTPS API via `ansible.builtin.uri` |
+| `checkpoint_policy.yml` | Clears session locks and existing rules/sections, optionally renames the gateway, creates network/host/group/multicast/service objects, publishes, adds new access rules, installs the policy, logs out | HTTPS API via `ansible.builtin.uri` |
 | `vars_checkpoint.yml` | All inputs for both playbooks (interfaces, OSPF, LLDP, objects, rules, credentials) | n/a |
 
 ## Prerequisites
@@ -54,10 +54,13 @@ The inventory host files `hosts.example.yml` supplies the necessary variables. I
 ## What the firewall rules playbook does
 
 - Logs in to the Management API and caches the session ID.
+- Clears any uncommitted changes from other sessions and purges published sessions to prevent conflicts.
+- Removes all existing access rules and sections from the policy layer (keeps one temporarily as placeholder).
 - Optionally renames the gateway object to match `inventory_hostname` (publishes if changed).
 - Creates network/host/group/multicast and TCP/UDP service objects, then publishes them.
-- Adds access rules at the given `position` values (e.g., ahead of the Cleanup rule) with comments/tracking. Note: this playbook is not idempotent—re-running will create duplicate rules unless you clean them up first.
-- Publishes again, installs the specified package on the target gateway, and polls the task to completion.
+- Creates new firewall sections and adds access rules at the given `position` values with comments/tracking.
+- Removes the temporary placeholder rule and publishes the final configuration.
+- Installs the specified package on the target gateway and polls the task to completion.
 - Logs out and prints a short summary with object/rule counts and target.
 
 ## Handy checks on the gateway

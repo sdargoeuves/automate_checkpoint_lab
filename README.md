@@ -9,6 +9,7 @@ This directory contains everything needed to spin up and automate a Check Point 
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management, making it easy for anyone to run the Ansible playbooks without manually setting up Python environments.
 
 Install uv:
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
@@ -19,7 +20,7 @@ All Ansible dependencies are managed via `pyproject.toml` and will be automatica
 
 ## Project Structure
 
-```
+```bash
 ├── bash/
 │   ├── checkpoint_box_builder.sh
 │   └── README_checkpoint_box_builder.md
